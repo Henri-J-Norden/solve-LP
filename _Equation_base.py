@@ -128,6 +128,9 @@ class EqElement:
             raise TypeError(f"Can't compare {type(b)} to EqElement")
         return True
 
+    def __abs__(a):
+        return -a if a.multi < 0 else a
+
 
 class EquationBase:
     
@@ -264,4 +267,15 @@ class EquationBase:
     def __le__(a, b): return EquationBase.__numeric_comparer(op.le, a, b)
     def __gt__(a, b): return EquationBase.__numeric_comparer(op.gt, a, b)
     def __ge__(a, b): return EquationBase.__numeric_comparer(op.ge, a, b)
+
+    def __abs__(self):
+        if self.is_const():
+            return -self if self < 0 else self
+        raise NotImplementedError("Cannot return an absolute value for a non-numerical equation")
+        # not valid:
+        e = deepcopy(self)
+        for key in e.elem:
+            e.elem[key] = abs(e.elem[key])
+        return e
+        
     

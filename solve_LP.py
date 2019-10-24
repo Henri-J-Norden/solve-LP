@@ -47,21 +47,27 @@ def simplex_move(l, el, log=False):
         if r == lead_r:
             _div(l[r], l[r][lead_c])
             continue
+        if l[r][lead_c] == 0:
+            continue
         subtract = _div(l[lead_r], l[lead_r][lead_c] / l[r][lead_c], True)
         #print(f"subtracting {subtract} from row {r}")
         _sub(l[r], subtract)
     if log: print(getMatrix(l))
     
 
-def contains_negative(l):
-    global M
-    for i in range(len(l)):
-        #print(f"{i}: {i+1 not in M} M:({M})")
+def contains_negative(L):
+    l = L[0][1:]
+    global M, ex
+    for i in range(len(l)): # big M method check
         if (i+1 not in M) and (not l[i].is_const()):
             return True
     for i in range(len(l)):
         if i+1 in M: continue
         if l[i] < 0: return True
+    if ex == 5: # dual simplex
+        for row in range(1, len(L)):
+            if L[row][0] < 0:
+                return True
     return False
 
 def get_lead_el(l):
@@ -73,21 +79,27 @@ def get_lead_el(l):
                     for row in range(1, len(l))], key=lambda x: x[0])[1]
     return (lead_row, lead_col)
 
+def get_dual_simplex_lead_el(l):
+    lead_row = min(((l[row][0], row) for row in range(1, len(l))), key=lambda x: x[0])[1]
+    lead_col = min(((l[0][col] / abs(l[lead_row][col]), col) for col in range(1, len(l[0])) if l[lead_row][col] < 0), key=lambda x: x[0])[1]
+    return (lead_row, lead_col)
 
-def solve_simplex(l, log=False):
+
+def solve_simplex(l, log=False, lead_el_fn=get_lead_el):
     global test
     test = []
     used_cols = set()
-    while contains_negative(l[0][1:]):
-        if log: print("\nTable does not contain an optimal solution")
+    while contains_negative(l):
+        if log: print("Table does not contain an optimal solution")
 
-        r,c = get_lead_el(l)
+        r,c = lead_el_fn(l)
 
         if c in used_cols:
             print(f"Error: solver looped (to col {c}), no solution is possible!")
             return False
 
-        if log: print("\nLead column (min fn value): {}\nLead row (min var and free el div): {}".format(c, r))
+        #if log: print("\nLead column (min fn value): {}\nLead row (min var and free el div): {}".format(c, r))
+        if log: print(f"Lead row, col [↑]:  {r}, {c}.\n")
         
         simplex_move(l, (r,c), log)
         test.append(deepcopy(l))
@@ -100,7 +112,7 @@ def solve_simplex(l, log=False):
 def getInput():
     l = []
     col_count = None
-    ex = int(input("{}Solver (1:simplex, 2:2-phase, 3:M-method): ".format("" if log else "Silent")))
+    ex = int(input("{}Solver (1:simplex, 2:2-phase max, 3:M-max, 4:M-min, 5:dual-smplx max): ".format("" if log else "Silent")))
     #ex = 1
     if ex < 0: return (ex, [], [])
 
@@ -115,11 +127,6 @@ def getInput():
                 break
             for val in vals.split(" "):
                 row.append(Equation(val))
-##                if "/" in val:
-##                    val = list(map(int, val.split("/")))
-##                    row.append(Fraction(*val))
-##                else:
-##                    row.append(Fraction(float(val)))
             if col_count is None:
                 col_count = len(row)
             elif len(row) != col_count:
@@ -178,7 +185,7 @@ def getValues(l):
                     v[col] = 0
                 else:
                     valExists = True
-                    v[col] = l[row][0] * l[row][col]
+                    v[col] = l[row][0] / l[row][col]
     return v[1:]
 
 def getValueDict(l):
@@ -203,9 +210,9 @@ def getValueStrings(l, var):
     return s
 
 
-def exec_solve_simplex(l, log):
+def exec_solve_simplex(l, log, lead_el_fn=get_lead_el):
     remove_bases_from_fn(l, log)
-    return solve_simplex(l, log)
+    return solve_simplex(l, log, lead_el_fn)
 
 def get_fn(l, var):
     eq = Equation()
@@ -216,6 +223,12 @@ def get_fn(l, var):
         eq += EqElement(-l[i].calc(), {var[i]: 1})
     return eq
 
+def check_M(l):
+    global M
+    for i in range(len(l[0])):
+        if not l[0][i].is_const():
+            M.add(i)
+    if len(M) != 0: print("M-table detected")
 
 def solver(ex, l, log):
     global var, M
@@ -223,10 +236,7 @@ def solver(ex, l, log):
         print("\n\tGOT INPUT:")
         print(getMatrix(l), end="\n\n")
 
-    for i in range(len(l[0])):
-        if not l[0][i].is_const():
-            M.add(i)
-    if len(M) != 0: print("M-table detected")
+    check_M(l)
     
     if ex == 1:
         return exec_solve_simplex(l, log)
@@ -263,21 +273,24 @@ def solver(ex, l, log):
 
         return exec_solve_simplex(l, log)
 
-    elif ex == 3:
+    elif ex == 3 or ex == 4:
         fn_ = l[0]
         rows = len(l)
         
         # identity M-matrix
-        l[0] += ([Equation("M")]*(rows-1))
+        l[0] += ([Equation("M") if ex == 3 else Equation("-M")]*(rows-1))
         for r in range(1,rows):
             l[r] = l[r] + ([Equation("0")]*(r-1)) + [Equation("1")] + ([Equation("0")]*(rows-r-1))
 
         if log: print("\tM-table: \n{}".format(getMatrix(l)))
 
+        check_M(l)
         v = exec_solve_simplex(l, log)
         l[0] = fn_
         return v
-        
+
+    elif ex == 5:
+        return exec_solve_simplex(l, log, get_dual_simplex_lead_el)
         
     else:
         print("Error: Unknown solver {}!".format(ex))
